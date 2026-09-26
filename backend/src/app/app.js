@@ -1,5 +1,6 @@
 import express from "express";
 import authRoutes from "../routes/auth.routes.js";
+import productsRoutes from "../routes/products.routes.js";
 import cookieParser from "cookie-parser"
 
 const app = express();
@@ -12,6 +13,7 @@ app.use(cookieParser());
 
 // Routes
 app.use("/api/auth", authRoutes);
+app.use("/api/products", productsRoutes);
 
 app.get("/", (req, res) => {
   res.send("Server is running");

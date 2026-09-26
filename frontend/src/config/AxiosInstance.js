@@ -1,17 +1,24 @@
 import axios from "axios";
 
-const BASE_URL = "/api/auth";
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
 
 const api = axios.create({
   baseURL: BASE_URL,
   withCredentials: true, // sends the httpOnly refreshToken cookie automatically
 });
 
-// In-memory only — never localStorage/sessionStorage (XSS risk).
-let accessToken = null;
+// Initialize accessToken from localStorage if available
+let accessToken = localStorage.getItem("accessToken") || null;
+
 export const setAccessToken = (token) => {
   accessToken = token;
+  if (token) {
+    localStorage.setItem("accessToken", token);
+  } else {
+    localStorage.removeItem("accessToken");
+  }
 };
+
 export const getAccessToken = () => accessToken;
 
 api.interceptors.request.use((config) => {
@@ -41,7 +48,7 @@ api.interceptors.response.use(
     if (
       (status === 401 || status === 403) &&
       !originalRequest._retry &&
-      !originalRequest.url.includes("/refresh-token")
+      !originalRequest.url?.includes("/api/auth/refresh-token")
     ) {
       if (isRefreshing) {
         return new Promise((resolve, reject) => {
@@ -58,7 +65,7 @@ api.interceptors.response.use(
       isRefreshing = true;
 
       try {
-        const { data } = await api.post("/refresh-token");
+        const { data } = await api.post("/api/auth/refresh-token");
         setAccessToken(data.accessToken);
         processQueue(null, data.accessToken);
         originalRequest.headers.Authorization = `Bearer ${data.accessToken}`;
@@ -66,6 +73,7 @@ api.interceptors.response.use(
       } catch (refreshError) {
         processQueue(refreshError, null);
         setAccessToken(null);
+        localStorage.removeItem("user");
         window.dispatchEvent(new Event("session-expired"));
         return Promise.reject(refreshError);
       } finally {

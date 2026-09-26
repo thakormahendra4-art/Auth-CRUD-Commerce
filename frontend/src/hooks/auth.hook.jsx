@@ -5,9 +5,10 @@ import { useNavigate } from "react-router";
 import { getPendingRegistration, removePendingRegistration, savePendingRegistration } from "../utils/offlineRegister";
 import api, { setAccessToken } from "../config/AxiosInstance";
 
-export const useLogin =()=>{
-
-        const navigate = useNavigate();
+export const useLogin = () => {
+  const navigate = useNavigate();
+  const [error, setError] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
 
   const {
     register,
@@ -16,33 +17,40 @@ export const useLogin =()=>{
   } = useForm();
 
   const onSubmit = async (data) => {
-    console.log("Login data:", data);
+    setError("");
+    setIsLoading(true);
 
     try {
-      const response = await axios.post(
-        "/api/auth/login",
-        {
-          email: data.email.trim().toLowerCase(),
-          password: data.password,
-        },
-      );
+      const response = await api.post("/api/auth/login", {
+        email: data.email.trim().toLowerCase(),
+        password: data.password,
+      });
 
-      console.log("Login response:", response.data);
-
+      setAccessToken(response.data.accessToken);
       localStorage.setItem("user", JSON.stringify(response.data.user));
 
       navigate("/main");
-    } catch (error) {
-      console.error("LOGIN ERROR:", error.response?.data || error.message);
+    } catch (err) {
+      const msg = err.response?.data?.message || "Login failed. Please check your credentials.";
+      setError(msg);
+      console.error("LOGIN ERROR:", err.response?.data || err.message);
+    } finally {
+      setIsLoading(false);
     }
   };
 
   return {
-    register,handleSubmit,onSubmit,errors,navigate
-  }
-}
+    register,
+    handleSubmit,
+    onSubmit,
+    errors,
+    navigate,
+    isLoading,
+    error,
+  };
+};
 
-export const useRegister = ()=>{
+export const useRegister = () => {
   const navigate = useNavigate();
   const [message, setMessage] = useState("");
   const [isSyncing, setIsSyncing] = useState(false);
@@ -53,6 +61,7 @@ export const useRegister = ()=>{
   const {
     register,
     handleSubmit,
+    watch,
     formState: { errors },
   } = useForm();
 
@@ -68,47 +77,35 @@ export const useRegister = ()=>{
     setMessage("Internet connected. Registering your account...");
 
     try {
-      const response = await api.post("/register", pendingUser);
-
-      // Access token lives in memory only (used by the axios interceptor).
-      // The refresh token arrives as an httpOnly cookie set by the server.
-      setAccessToken(response.data.accessToken);
-
-      // Save registered user (safe to keep in localStorage — it's not a secret)
-      localStorage.setItem("user", JSON.stringify(response.data.user));
-
-      // Remove pending registration
+      await api.post("/api/auth/register", pendingUser);
       removePendingRegistration();
 
-      setMessage("Registration successful!");
-
-      // Go to dashboard
-      navigate("/main", { replace: true });
+      setMessage("Registration successful! Please log in.");
+      navigate("/", { replace: true });
     } catch (error) {
       console.error(
         "Registration sync error:",
-        error.response?.data || error.message,
+        error.response?.data || error.message
       );
 
-      const errorMessage = error.response?.data?.message;
+      const errorMessage =
+        error.response?.data?.errors?.[0]?.message ||
+        error.response?.data?.message;
 
-      // User already exists
-      if (errorMessage === "User already exists") {
+      if (error.response?.status === 409 || errorMessage?.includes("already")) {
         removePendingRegistration();
-        setMessage("User already exists. Please login.");
-
+        setMessage("Account already exists. Please log in.");
         navigate("/", { replace: true });
-
         return;
       }
 
-      // Other errors → keep pending registration
       setMessage(errorMessage || "Registration failed. Please try again.");
     } finally {
       isSyncingRef.current = false;
       setIsSyncing(false);
     }
   };
+
   useEffect(() => {
     const handleOnline = () => {
       console.log("Internet connected!");
@@ -116,8 +113,6 @@ export const useRegister = ()=>{
     };
 
     window.addEventListener("online", handleOnline);
-
-    // Check if a pending request already exists
     syncRegistration();
 
     return () => {
@@ -128,33 +123,96 @@ export const useRegister = ()=>{
   const onSubmit = async (data) => {
     if (!navigator.onLine) {
       savePendingRegistration(data);
-
       setMessage(
-        "You are offline. Your registration will be submitted automatically when internet returns.",
+        "You are offline. Your registration will be submitted automatically when internet returns."
       );
-
       return;
     }
 
     try {
-      const response = await api.post("/register", data);
+      await api.post("/api/auth/register", data);
+      removePendingRegistration();
 
-      setAccessToken(response.data.accessToken);
-      localStorage.setItem("user", JSON.stringify(response.data.user));
-
-      navigate("/main", { replace: true });
+      setMessage("Registration successful! Redirecting to login...");
+      setTimeout(() => {
+        navigate("/", { replace: true });
+      }, 1200);
     } catch (error) {
       console.error(
         "Registration error:",
-        error.response?.data || error.message,
+        error.response?.data || error.message
       );
 
-      setMessage(error.response?.data?.message || "Registration failed.");
+      const errorMsg =
+        error.response?.data?.errors?.[0]?.message ||
+        error.response?.data?.message ||
+        "Registration failed.";
+
+      setMessage(errorMsg);
     }
   };
 
   return {
-    message,onSubmit,handleSubmit,errors,register,isSyncing,navigate
-  }
+    message,
+    onSubmit,
+    handleSubmit,
+    errors,
+    register,
+    watch,
+    isSyncing,
+    navigate,
+  };
+};
 
-}
+export const useAuth = () => {
+  const [user, setUser] = useState(() => {
+    try {
+      const stored = localStorage.getItem("user");
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  useEffect(() => {
+    const syncUser = () => {
+      try {
+        const stored = localStorage.getItem("user");
+        setUser(stored ? JSON.parse(stored) : null);
+      } catch {
+        setUser(null);
+      }
+    };
+
+    window.addEventListener("storage", syncUser);
+    window.addEventListener("session-expired", syncUser);
+
+    return () => {
+      window.removeEventListener("storage", syncUser);
+      window.removeEventListener("session-expired", syncUser);
+    };
+  }, []);
+
+  const logout = async () => {
+    try {
+      await api.post("/api/auth/logout");
+    } catch {
+      // Ignore network errors on logout
+    } finally {
+      setAccessToken(null);
+      localStorage.removeItem("user");
+      localStorage.removeItem("pendingRegistration");
+      setUser(null);
+    }
+  };
+
+  return {
+    user,
+    isAuthenticated: !!user,
+    isSeller: user?.role === "seller",
+    isCustomer: user?.role === "customer",
+    isUser: user?.role === "customer" || user?.role === "user",
+    role: user?.role,
+    logout,
+  };
+};

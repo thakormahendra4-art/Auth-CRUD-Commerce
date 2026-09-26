@@ -3,13 +3,7 @@ import bcrypt from "bcrypt";
 
 const userSchema = new mongoose.Schema(
   {
-    firstName: {
-      type: String,
-      required: true,
-      trim: true,
-    },
-
-    lastName: {
+    name: {
       type: String,
       required: true,
       trim: true,
@@ -35,12 +29,17 @@ const userSchema = new mongoose.Schema(
       required: true,
       minlength: 6,
     },
+
+    role: {
+      type: String,
+      enum: ["customer", "seller"],
+      default: "customer",
+    },
   },
   {
     timestamps: true,
   },
 );
-
 
 const User = mongoose.model("User", userSchema);
 

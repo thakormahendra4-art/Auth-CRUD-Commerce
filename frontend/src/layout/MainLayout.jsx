@@ -3,11 +3,11 @@ import Navbar from "../components/Navbar";
 
 const MainLayout = () => {
   return (
-    <div>
-      <Navbar/>
+    <div className="min-h-screen flex flex-col bg-gray-50 text-gray-900">
+      <Navbar />
 
-      <main className="h-[100vh] bg-red-100">
-        <Outlet/>
+      <main className="flex-1 w-full">
+        <Outlet />
       </main>
     </div>
   );
